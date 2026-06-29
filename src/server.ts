@@ -4,6 +4,7 @@ import type { CardConfig } from './connectors/types.js';
 import { loadKeyring } from './crypto.js';
 import { getReadings, listCards, openDb, removeCard, upsertCard } from './db.js';
 import { renderMetrics } from './metrics.js';
+import { ICON_SVG, MANIFEST, SW_JS } from './pwa.js';
 import { refreshAll } from './refresh.js';
 import { renderDashboard } from './views.js';
 
@@ -37,8 +38,13 @@ if (!AUTH_USER || !AUTH_PASS) {
   app.log.warn('LIBCARD_AUTH_USER/PASS not set — UI is UNAUTHENTICATED (dev only; set them in prod).');
 } else {
   app.addHook('onRequest', async (req, reply) => {
-    // Probes and Prometheus scrapes don't carry creds; /metrics exposes no secrets.
-    if (req.url === '/healthz' || req.url === '/metrics') return;
+    // Probes, Prometheus scrapes, and PWA assets carry no secrets and must load
+    // without credentials.
+    const path = req.url.split('?')[0] ?? '';
+    if (
+      path === '/healthz' || path === '/metrics' ||
+      path === '/manifest.webmanifest' || path === '/sw.js' || path.startsWith('/icons/')
+    ) return;
     const h = req.headers.authorization || '';
     const m = h.match(/^Basic (.+)$/);
     if (m && m[1]) {
@@ -54,6 +60,17 @@ app.get('/healthz', async () => ({ ok: true }));
 
 app.get('/metrics', async (_req, reply) => {
   reply.type('text/plain; version=0.0.4').send(renderMetrics(listCards(db), getReadings(db)));
+});
+
+// ── PWA assets ──
+app.get('/manifest.webmanifest', async (_req, reply) => {
+  reply.type('application/manifest+json').send(MANIFEST);
+});
+app.get('/sw.js', async (_req, reply) => {
+  reply.type('text/javascript').header('Service-Worker-Allowed', '/').send(SW_JS);
+});
+app.get('/icons/icon.svg', async (_req, reply) => {
+  reply.type('image/svg+xml').header('cache-control', 'public, max-age=86400').send(ICON_SVG);
 });
 
 app.get('/', async (_req, reply) => {

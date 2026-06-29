@@ -1,5 +1,6 @@
 import type { CardConfig } from './connectors/types.js';
 import type { ReadingRow } from './db.js';
+import { HEAD_TAGS } from './pwa.js';
 
 // Server-rendered dashboard. No framework / build step. User-supplied strings
 // (member/system/baseUrl) are HTML-escaped to prevent stored XSS.
@@ -59,7 +60,7 @@ export function renderDashboard(cards: CardConfig[], readings: Map<string, Readi
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Library Card Tracker</title>
+<title>Library Card Tracker</title>${HEAD_TAGS}
 <style>
   :root { color-scheme: light dark; }
   body { font: 15px/1.5 system-ui, sans-serif; margin: 0; padding: 1.5rem; max-width: 900px; }

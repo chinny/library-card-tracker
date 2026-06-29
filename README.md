@@ -7,7 +7,7 @@ A real browser (Playwright) logs into each card and reads the patron dashboard's
 > This repo is intentionally **generic**. No real library hostnames, card numbers, PINs, or names live here — those go in a gitignored `config.json` and credentials (later: an encrypted local store / k8s Secret). Committed files use placeholder examples only.
 
 ## Status
-Early build. **Phases 1–5** are in place: connector, encrypted SQLite store + CLI, web dashboard (card UI, scheduler, on-demand refresh, Basic Auth), Prometheus `/metrics` with example Grafana dashboard + alerts, and container + k8s/compose example manifests. PWA is the remaining step. See the project plan in `chinny/notes/projects/library-card-app.md`.
+**Feature-complete (Phases 1–6).** Connector, encrypted SQLite store + CLI, web dashboard (card UI, scheduler, on-demand refresh, Basic Auth), Prometheus `/metrics` with example Grafana dashboard + alerts, container + k8s/compose example manifests, and an installable PWA. See the project plan in `chinny/notes/projects/library-card-app.md`.
 
 ## Setup
 ```sh
@@ -65,6 +65,13 @@ docker compose up --build     # local: needs .env with LIBCARD_MASTER_KEY
 - `docker-compose.yml` — local single-container run with a named data volume.
 - `deploy/k8s/` — **example** manifests (not wired to a cluster): namespace, Secret (master key + auth), PVC, Deployment (hardened: non-root, read-only FS, dropped caps), Service, Ingress, NetworkPolicy + Cilium FQDN egress allowlist, ServiceMonitor. See `deploy/k8s/README.md` for apply order.
 
+### Phase 6 — install on Android (PWA)
+The dashboard is an installable PWA: open it in Chrome on Android → menu → **Add to
+Home Screen**. It launches standalone with an app icon, and a service worker shows
+the last-known capacity when offline. Manifest, service worker, and icon are served
+from the app (`/manifest.webmanifest`, `/sw.js`, `/icons/icon.svg`) — no files to ship.
+(Installability needs HTTPS — use the Ingress TLS host, not plain `localhost:8080`.)
+
 ### Phase 1 — env-only harness (no DB)
 ```sh
 cp config.example.json config.json && cp .env.example .env   # fill both in
@@ -79,7 +86,7 @@ Each card in `config.json` needs `LIBCARD_<ID>_CARD` / `LIBCARD_<ID>_PIN` (id up
 3. ✅ Card management UI + capacity dashboard + scheduler + Basic Auth
 4. ✅ Prometheus `/metrics` → Grafana dashboard + scrape-failure alerts
 5. ✅ Container + k8s/compose example manifests (PVC, NetworkPolicy, ServiceMonitor)
-6. PWA (installable on Android)
+6. ✅ PWA (installable on Android)
 
 ## Security notes
 - PINs must be **replayed** to the library, so they are **encrypted at rest, not hashed**; the master key lives outside the DB (k8s Secret).
