@@ -1,0 +1,18 @@
+{
+  "cards": [
+    {
+      "id": "card-1",
+      "member": "Member One",
+      "system": "library-a",
+      "baseUrl": "https://example-a.ent.sirsi.net",
+      "limit": 50
+    },
+    {
+      "id": "card-2",
+      "member": "Member One",
+      "system": "library-b",
+      "baseUrl": "https://example-b.example.org",
+      "limit": 50
+    }
+  ]
+}

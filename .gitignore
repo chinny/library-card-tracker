@@ -1,0 +1,23 @@
+# dependencies / build
+node_modules/
+dist/
+
+# secrets & real config — NEVER commit (only *.example.* is tracked)
+.env
+.env.*
+!.env.example
+config.json
+*.local.json
+
+# data
+*.sqlite
+*.sqlite3
+*.db
+data/
+
+# debug artifacts that can contain PII / credentials (screenshots, traces, HAR)
+*.png
+*.jpg
+trace*.zip
+*.har
+debug/
