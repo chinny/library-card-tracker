@@ -1,0 +1,17 @@
+# Prometheus Operator scrape config. /metrics needs no auth and exposes no secrets.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: library-card-tracker
+  namespace: library-card-tracker
+  labels:
+    app: library-card-tracker
+    release: kube-prometheus-stack   # match your Prometheus' serviceMonitorSelector
+spec:
+  selector:
+    matchLabels:
+      app: library-card-tracker
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 5m

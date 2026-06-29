@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: library-card-tracker
+  namespace: library-card-tracker
+  labels:
+    app: library-card-tracker
+spec:
+  replicas: 1
+  # SQLite is a single writer — never run >1 replica. Recreate avoids two pods
+  # touching the volume during a rollout.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: library-card-tracker
+  template:
+    metadata:
+      labels:
+        app: library-card-tracker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000          # pwuser in the Playwright image
+        fsGroup: 1000            # so the mounted PVC is writable
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: REGISTRY/library-card-tracker:0.1.0   # set to your registry/tag
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: library-card-tracker
+          env:
+            - name: LIBCARD_REFRESH_MINUTES
+              value: "360"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+            - name: dshm           # Chromium needs more than the default 64Mi /dev/shm
+              mountPath: /dev/shm
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "768Mi"
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: library-card-tracker-data
+        - name: tmp
+          emptyDir: {}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi

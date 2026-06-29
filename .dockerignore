@@ -1,0 +1,15 @@
+.git
+node_modules
+dist
+data
+*.sqlite
+*.sqlite-*
+.env
+.env.*
+config.json
+*.local.json
+*.png
+*.jpg
+*.har
+deploy
+README.md

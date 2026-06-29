@@ -7,7 +7,7 @@ A real browser (Playwright) logs into each card and reads the patron dashboard's
 > This repo is intentionally **generic**. No real library hostnames, card numbers, PINs, or names live here — those go in a gitignored `config.json` and credentials (later: an encrypted local store / k8s Secret). Committed files use placeholder examples only.
 
 ## Status
-Early build. **Phases 1–4** are in place: connector, encrypted SQLite store + CLI, web dashboard (card UI, scheduler, on-demand refresh, Basic Auth), and Prometheus `/metrics` with example Grafana dashboard + alert rules. Container/k3s deploy is next. See the project plan in `chinny/notes/projects/library-card-app.md`.
+Early build. **Phases 1–5** are in place: connector, encrypted SQLite store + CLI, web dashboard (card UI, scheduler, on-demand refresh, Basic Auth), Prometheus `/metrics` with example Grafana dashboard + alerts, and container + k8s/compose example manifests. PWA is the remaining step. See the project plan in `chinny/notes/projects/library-card-app.md`.
 
 ## Setup
 ```sh
@@ -57,6 +57,14 @@ Deploy artifacts in `deploy/monitoring/`:
 - `prometheus-rules.yaml` — alerts: scrape failing, data stale, card near limit.
 - `grafana-dashboard.json` — starter dashboard (remaining slots, scrape health, checkouts over time).
 
+### Phase 5 — container & deploy examples
+```sh
+docker compose up --build     # local: needs .env with LIBCARD_MASTER_KEY
+```
+- `Dockerfile` — multi-stage; runtime is the Playwright image (Chromium + deps baked in), runs compiled JS as non-root.
+- `docker-compose.yml` — local single-container run with a named data volume.
+- `deploy/k8s/` — **example** manifests (not wired to a cluster): namespace, Secret (master key + auth), PVC, Deployment (hardened: non-root, read-only FS, dropped caps), Service, Ingress, NetworkPolicy + Cilium FQDN egress allowlist, ServiceMonitor. See `deploy/k8s/README.md` for apply order.
+
 ### Phase 1 — env-only harness (no DB)
 ```sh
 cp config.example.json config.json && cp .env.example .env   # fill both in
@@ -70,7 +78,7 @@ Each card in `config.json` needs `LIBCARD_<ID>_CARD` / `LIBCARD_<ID>_PIN` (id up
 2. ✅ Persistence — SQLite (node:sqlite); barcode + PIN encrypted at rest (AES-256-GCM); management CLI
 3. ✅ Card management UI + capacity dashboard + scheduler + Basic Auth
 4. ✅ Prometheus `/metrics` → Grafana dashboard + scrape-failure alerts
-5. Containerize + k3s (PVC, NetworkPolicy, ServiceMonitor)
+5. ✅ Container + k8s/compose example manifests (PVC, NetworkPolicy, ServiceMonitor)
 6. PWA (installable on Android)
 
 ## Security notes

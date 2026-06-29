@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: library-card-tracker-data
+  namespace: library-card-tracker
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+  # storageClassName: local-path   # k3s default; set to match your cluster

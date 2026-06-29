@@ -1,0 +1,43 @@
+# Cilium FQDN egress allowlist — the strong control: the app may only reach DNS and
+# the specific library hosts on 443. If the app is ever compromised it cannot
+# exfiltrate credentials anywhere else. Replace the placeholder FQDNs with your real
+# library catalog hosts (these are deploy-time values, kept out of the app config).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: library-card-tracker
+  namespace: library-card-tracker
+spec:
+  endpointSelector:
+    matchLabels:
+      app: library-card-tracker
+  egress:
+    # DNS (required for FQDN policies to resolve).
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*"
+    # Only these hosts, only on 443.
+    - toFQDNs:
+        - matchName: "example-a.ent.sirsi.net"
+        - matchName: "example-b.example.org"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+  ingress:
+    # Only the ingress controller (adjust labels to your setup).
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
