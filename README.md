@@ -7,7 +7,7 @@ A real browser (Playwright) logs into each card and reads the patron dashboard's
 > This repo is intentionally **generic**. No real library hostnames, card numbers, PINs, or names live here — those go in a gitignored `config.json` and credentials (later: an encrypted local store / k8s Secret). Committed files use placeholder examples only.
 
 ## Status
-Early build. **Phases 1–3** are in place: connector, encrypted SQLite store + CLI, and a web dashboard (card management UI, scheduler, on-demand refresh, Basic Auth). Metrics and container/k3s deploy are next. See the project plan in `chinny/notes/projects/library-card-app.md`.
+Early build. **Phases 1–4** are in place: connector, encrypted SQLite store + CLI, web dashboard (card UI, scheduler, on-demand refresh, Basic Auth), and Prometheus `/metrics` with example Grafana dashboard + alert rules. Container/k3s deploy is next. See the project plan in `chinny/notes/projects/library-card-app.md`.
 
 ## Setup
 ```sh
@@ -46,6 +46,17 @@ Shows a capacity grid (physical `n/50`, color-coded by slots left; digital/holds
 
 Env: `PORT` (8080), `HOST` (0.0.0.0), `LIBCARD_DB` (data/library.sqlite), `LIBCARD_REFRESH_MINUTES` (360; 0 disables), `LIBCARD_AUTH_USER`/`LIBCARD_AUTH_PASS`.
 
+### Phase 4 — metrics & monitoring
+`GET /metrics` exposes Prometheus gauges (no auth needed, no secrets — labeled by
+`card`/`member`/`system` only): `library_checkouts_physical`, `library_remaining`,
+`library_checkouts_digital`, `library_holds_library`, `library_holds_digital`,
+`library_fines_dollars`, `library_checkout_limit`, `library_scrape_success`,
+`library_scrape_timestamp_seconds`. Rendered on-demand from the DB, so they survive restarts.
+
+Deploy artifacts in `deploy/monitoring/`:
+- `prometheus-rules.yaml` — alerts: scrape failing, data stale, card near limit.
+- `grafana-dashboard.json` — starter dashboard (remaining slots, scrape health, checkouts over time).
+
 ### Phase 1 — env-only harness (no DB)
 ```sh
 cp config.example.json config.json && cp .env.example .env   # fill both in
@@ -58,7 +69,7 @@ Each card in `config.json` needs `LIBCARD_<ID>_CARD` / `LIBCARD_<ID>_PIN` (id up
 1. ✅ Connector + CLI harness (generic SirsiDynix Enterprise)
 2. ✅ Persistence — SQLite (node:sqlite); barcode + PIN encrypted at rest (AES-256-GCM); management CLI
 3. ✅ Card management UI + capacity dashboard + scheduler + Basic Auth
-4. Prometheus `/metrics` → Grafana + scrape-failure alerts
+4. ✅ Prometheus `/metrics` → Grafana dashboard + scrape-failure alerts
 5. Containerize + k3s (PVC, NetworkPolicy, ServiceMonitor)
 6. PWA (installable on Android)
 

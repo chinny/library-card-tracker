@@ -3,6 +3,7 @@ import Fastify from 'fastify';
 import type { CardConfig } from './connectors/types.js';
 import { loadKeyring } from './crypto.js';
 import { getReadings, listCards, openDb, removeCard, upsertCard } from './db.js';
+import { renderMetrics } from './metrics.js';
 import { refreshAll } from './refresh.js';
 import { renderDashboard } from './views.js';
 
@@ -36,6 +37,8 @@ if (!AUTH_USER || !AUTH_PASS) {
   app.log.warn('LIBCARD_AUTH_USER/PASS not set — UI is UNAUTHENTICATED (dev only; set them in prod).');
 } else {
   app.addHook('onRequest', async (req, reply) => {
+    // Probes and Prometheus scrapes don't carry creds; /metrics exposes no secrets.
+    if (req.url === '/healthz' || req.url === '/metrics') return;
     const h = req.headers.authorization || '';
     const m = h.match(/^Basic (.+)$/);
     if (m && m[1]) {
@@ -48,6 +51,10 @@ if (!AUTH_USER || !AUTH_PASS) {
 
 // ── Routes ──
 app.get('/healthz', async () => ({ ok: true }));
+
+app.get('/metrics', async (_req, reply) => {
+  reply.type('text/plain; version=0.0.4').send(renderMetrics(listCards(db), getReadings(db)));
+});
 
 app.get('/', async (_req, reply) => {
   reply.type('text/html').send(renderDashboard(listCards(db), getReadings(db)));

@@ -1,0 +1,44 @@
+# Prometheus Operator alert rules for library-card-tracker.
+# Adjust the `release` label to match your Prometheus' ruleSelector
+# (e.g. the kube-prometheus-stack Helm release name).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: library-card-tracker
+  labels:
+    app: library-card-tracker
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: library-card-tracker
+      rules:
+        # The connector failed to log in or parse — the library UI may have changed,
+        # or a stored PIN is wrong. This is the scraper health signal.
+        - alert: LibraryScrapeFailing
+          expr: library_scrape_success == 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Library read failing for {{ $labels.member }}/{{ $labels.system }}"
+            description: "Card {{ $labels.card }} has failed login/parse for 30m+."
+
+        # No successful refresh in a long time (default poll is 6h → 12h = ~2 misses).
+        - alert: LibraryDataStale
+          expr: time() - library_scrape_timestamp_seconds > 43200
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Library data stale for {{ $labels.member }}/{{ $labels.system }}"
+            description: "Card {{ $labels.card }} has not refreshed successfully in over 12h."
+
+        # The whole point of the app: a card is nearly maxed out.
+        - alert: LibraryCardNearLimit
+          expr: library_remaining <= 2
+          for: 0m
+          labels:
+            severity: info
+          annotations:
+            summary: "Card nearly maxed: {{ $labels.member }}/{{ $labels.system }}"
+            description: "{{ $labels.card }} has {{ $value }} physical slot(s) left."
