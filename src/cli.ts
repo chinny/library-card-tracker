@@ -1,17 +1,8 @@
 import { readFile } from 'node:fs/promises';
-import { chromium } from 'playwright';
-import { fetchAccount } from './connectors/sirsidynix.js';
 import type { CardConfig, Credentials } from './connectors/types.js';
 import { generateKeyBase64, loadKeyring } from './crypto.js';
-import {
-  getCredentials,
-  listCards,
-  openDb,
-  removeCard,
-  saveReading,
-  upsertCard,
-  type Db,
-} from './db.js';
+import { listCards, openDb, removeCard, upsertCard, type Db } from './db.js';
+import { refreshAll } from './refresh.js';
 import { printRow } from './report.js';
 
 // DB-backed management CLI (Phase 2). Replaces the env-only harness in index.ts.
@@ -88,22 +79,12 @@ function cmdList(db: Db): void {
 
 async function cmdRefresh(db: Db): Promise<void> {
   const kr = loadKeyring();
-  const cards = listCards(db);
-  if (cards.length === 0) {
+  const statuses = await refreshAll(db, kr);
+  if (statuses.length === 0) {
     console.log('no cards to refresh.');
     return;
   }
-  const browser = await chromium.launch();
-  try {
-    for (const card of cards) {
-      const creds = getCredentials(db, kr, card.id); // in-memory only
-      const status = await fetchAccount(browser, card, creds);
-      saveReading(db, status);
-      printRow(status);
-    }
-  } finally {
-    await browser.close();
-  }
+  for (const s of statuses) printRow(s);
 }
 
 async function main(): Promise<void> {

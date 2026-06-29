@@ -82,6 +82,25 @@ export function removeCard(db: Db, id: string): boolean {
   return db.prepare('DELETE FROM cards WHERE id = ?').run(id).changes > 0;
 }
 
+export interface ReadingRow {
+  card_id: string;
+  ok: number;
+  physical: number | null;
+  digital: number | null;
+  holds_library: number | null;
+  holds_digital: number | null;
+  fines_due: number | null;
+  remaining: number | null;
+  error: string | null;
+  fetched_at: string;
+}
+
+/** Latest reading per card, keyed by card id. */
+export function getReadings(db: Db): Map<string, ReadingRow> {
+  const rows = db.prepare('SELECT * FROM readings').all() as unknown as ReadingRow[];
+  return new Map(rows.map((r) => [r.card_id, r]));
+}
+
 export function saveReading(db: Db, s: AccountStatus): void {
   db.prepare(`
     INSERT INTO readings (card_id, ok, physical, digital, holds_library, holds_digital, fines_due, remaining, error, fetched_at)

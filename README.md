@@ -7,7 +7,7 @@ A real browser (Playwright) logs into each card and reads the patron dashboard's
 > This repo is intentionally **generic**. No real library hostnames, card numbers, PINs, or names live here — those go in a gitignored `config.json` and credentials (later: an encrypted local store / k8s Secret). Committed files use placeholder examples only.
 
 ## Status
-Early build. **Phase 1** (connector) and **Phase 2** (encrypted SQLite store + management CLI) are in place. Web UI, metrics, and container/k3s deploy are planned. See the project plan in `chinny/notes/projects/library-card-app.md`.
+Early build. **Phases 1–3** are in place: connector, encrypted SQLite store + CLI, and a web dashboard (card management UI, scheduler, on-demand refresh, Basic Auth). Metrics and container/k3s deploy are next. See the project plan in `chinny/notes/projects/library-card-app.md`.
 
 ## Setup
 ```sh
@@ -36,6 +36,16 @@ npm run cli -- rm <id>
 ```
 Once imported, only `LIBCARD_MASTER_KEY` is needed at runtime — the per-card env creds were just the import source.
 
+### Phase 3 — web dashboard
+```sh
+export LIBCARD_MASTER_KEY=<your key>     # same key used to import the cards
+export LIBCARD_AUTH_USER=you LIBCARD_AUTH_PASS=somepass   # Basic Auth (skip = unauthenticated, dev only)
+npm run serve                            # http://localhost:8080
+```
+Shows a capacity grid (physical `n/50`, color-coded by slots left; digital/holds/fines as info), an **Add card** form, per-card **remove**, and a **Refresh now** button. A background scheduler re-reads every `LIBCARD_REFRESH_MINUTES` (default 360).
+
+Env: `PORT` (8080), `HOST` (0.0.0.0), `LIBCARD_DB` (data/library.sqlite), `LIBCARD_REFRESH_MINUTES` (360; 0 disables), `LIBCARD_AUTH_USER`/`LIBCARD_AUTH_PASS`.
+
 ### Phase 1 — env-only harness (no DB)
 ```sh
 cp config.example.json config.json && cp .env.example .env   # fill both in
@@ -47,11 +57,10 @@ Each card in `config.json` needs `LIBCARD_<ID>_CARD` / `LIBCARD_<ID>_PIN` (id up
 ## Roadmap
 1. ✅ Connector + CLI harness (generic SirsiDynix Enterprise)
 2. ✅ Persistence — SQLite (node:sqlite); barcode + PIN encrypted at rest (AES-256-GCM); management CLI
-3. Card management UI + capacity dashboard + scheduler
-4. Secrets — master key from k8s Secret; Basic Auth in front of the UI
-5. Prometheus `/metrics` → Grafana + scrape-failure alerts
-6. Containerize + k3s (PVC, NetworkPolicy, ServiceMonitor)
-7. PWA (installable on Android)
+3. ✅ Card management UI + capacity dashboard + scheduler + Basic Auth
+4. Prometheus `/metrics` → Grafana + scrape-failure alerts
+5. Containerize + k3s (PVC, NetworkPolicy, ServiceMonitor)
+6. PWA (installable on Android)
 
 ## Security notes
 - PINs must be **replayed** to the library, so they are **encrypted at rest, not hashed**; the master key lives outside the DB (k8s Secret).
