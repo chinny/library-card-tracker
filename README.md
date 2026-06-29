@@ -7,7 +7,7 @@ A real browser (Playwright) logs into each card and reads the patron dashboard's
 > This repo is intentionally **generic**. No real library hostnames, card numbers, PINs, or names live here — those go in a gitignored `config.json` and credentials (later: an encrypted local store / k8s Secret). Committed files use placeholder examples only.
 
 ## Status
-**Feature-complete (Phases 1–6).** Connector, encrypted SQLite store + CLI, web dashboard (card UI, scheduler, on-demand refresh, Basic Auth), Prometheus `/metrics` with example Grafana dashboard + alerts, container + k8s/compose example manifests, and an installable PWA. See the project plan in `chinny/notes/projects/library-card-app.md`.
+**Feature-complete (Phases 1–6).** Connector, encrypted SQLite store + CLI, web dashboard (card UI, scheduler, on-demand refresh, Basic Auth), Prometheus `/metrics` with example Grafana dashboard + alerts, container + k8s/compose example manifests, and an installable PWA.
 
 ## Setup
 ```sh
