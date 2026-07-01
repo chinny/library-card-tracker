@@ -8,8 +8,9 @@ COPY src ./src
 RUN npm run build
 
 # ---- runtime stage: Playwright image ships Chromium + its system deps ----
-# Pin the tag to the `playwright` version in package.json so the bundled browser matches.
-FROM mcr.microsoft.com/playwright:v1.49.0-noble AS runtime
+# This tag MUST equal the exact `playwright` version in package.json, or the bundled
+# browser build won't match the npm package and launch fails.
+FROM mcr.microsoft.com/playwright:v1.61.1-noble AS runtime
 ENV NODE_ENV=production \
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
     LIBCARD_DB=/data/library.sqlite \
