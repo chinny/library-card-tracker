@@ -41,16 +41,18 @@ function cardRow(card: CardConfig, r: ReadingRow | undefined): string {
   const stale = r && !r.ok && hasData
     ? `<div class="muted">showing data from ${esc(ago(r.last_success_at!))}</div>` : '';
   const note = r && !r.ok ? `<div class="err">⚠ sync failed: ${esc(r.error)}</div>${stale}` : '';
+  // data-v carries the machine value for header sorting (display text is formatted).
+  const v = (x: number | string | null | undefined): string => (x ?? '') === '' ? '' : esc(String(x));
   return `
     <tr>
-      <td>${esc(card.member)}</td>
-      <td>${esc(card.system)}</td>
-      <td><span class="pill ${cls}">${esc(cap)}</span>${note}</td>
-      <td class="num">${esc(remaining)}</td>
-      <td class="num">${esc(digital)}</td>
-      <td class="num">${esc(holds)}</td>
-      <td class="num">${esc(fines)}</td>
-      <td class="muted">${updated}</td>
+      <td data-v="${esc(card.member.toLowerCase())}">${esc(card.member)}</td>
+      <td data-v="${esc(card.system.toLowerCase())}">${esc(card.system)}</td>
+      <td data-v="${hasData ? v(r.physical) : ''}"><span class="pill ${cls}">${esc(cap)}</span>${note}</td>
+      <td class="num" data-v="${hasData ? v(r.remaining) : ''}">${esc(remaining)}</td>
+      <td class="num" data-v="${hasData ? v(r.digital) : ''}">${esc(digital)}</td>
+      <td class="num" data-v="${hasData && r.holds_library !== null ? v((r.holds_library ?? 0) + (r.holds_digital ?? 0) / 1000) : ''}">${esc(holds)}</td>
+      <td class="num" data-v="${hasData ? v(r.fines_due) : ''}">${esc(fines)}</td>
+      <td class="muted" data-v="${r ? esc(r.fetched_at) : ''}">${updated}</td>
       <td class="actions">
         <button class="link" onclick="showBarcode('${esc(card.id)}', '${esc(card.member)} · ${esc(card.system)}')">barcode</button>
         <button class="link danger" onclick="removeCard('${esc(card.id)}')">remove</button>
@@ -77,6 +79,10 @@ export function renderDashboard(cards: CardConfig[], readings: Map<string, Readi
   table { border-collapse: collapse; width: 100%; }
   th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid #8884; }
   th { font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; color: #888; }
+  th[data-s] { cursor: pointer; user-select: none; }
+  th[data-s]:hover { color: #555; }
+  th.asc::after { content: " ▲"; font-size: .7em; }
+  th.desc::after { content: " ▼"; font-size: .7em; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .muted { color: #999; font-size: .85rem; }
   .pill { display: inline-block; padding: .12rem .5rem; border-radius: 999px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -119,8 +125,8 @@ export function renderDashboard(cards: CardConfig[], readings: Map<string, Readi
   <table>
     <thead>
       <tr>
-        <th>Member</th><th>Library</th><th>Physical</th><th>Left</th>
-        <th>Digital</th><th>Holds L/D</th><th>Fines</th><th>Updated</th><th></th>
+        <th data-s="t">Member</th><th data-s="t">Library</th><th data-s="n">Physical</th><th data-s="n">Left</th>
+        <th data-s="n">Digital</th><th data-s="n">Holds L/D</th><th data-s="n">Fines</th><th data-s="t">Updated</th><th></th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
@@ -205,6 +211,38 @@ export function renderDashboard(cards: CardConfig[], readings: Map<string, Readi
     body.limit = Number(body.limit || 50);
     try { const r = await fetch('/api/cards', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); if (!r.ok) throw new Error(await r.text()); location.reload(); }
     catch (e) { msg('Add failed: ' + e.message, true); }
+  }
+  // Column sorting: click a header to sort, click again to flip. Cells carry the
+  // machine value in data-v; missing values sort last either way. The choice is
+  // remembered per browser and reapplied after each reload/refresh.
+  function applySort(i, dir) {
+    const tbody = document.querySelector('tbody');
+    const rows = Array.from(tbody.rows).filter((r) => r.cells.length > 1);
+    if (!rows.length) return;
+    const ths = document.querySelectorAll('th');
+    ths.forEach((t) => t.classList.remove('asc', 'desc'));
+    ths[i].classList.add(dir > 0 ? 'asc' : 'desc');
+    const num = ths[i].dataset.s === 'n';
+    rows.sort((a, b) => {
+      const av = a.cells[i].dataset.v, bv = b.cells[i].dataset.v;
+      if (av === '' || bv === '') return (av === '') - (bv === '');
+      const c = num ? Number(av) - Number(bv) : (av < bv ? -1 : av > bv ? 1 : 0);
+      return dir * c;
+    });
+    rows.forEach((r) => tbody.appendChild(r));
+  }
+  document.querySelectorAll('th[data-s]').forEach((th) => {
+    th.addEventListener('click', () => {
+      const dir = th.classList.contains('asc') ? -1 : 1;
+      localStorage.setItem('libcard-sort', th.cellIndex + ':' + dir);
+      applySort(th.cellIndex, dir);
+    });
+  });
+  const savedSort = localStorage.getItem('libcard-sort');
+  if (savedSort) {
+    const [i, d] = savedSort.split(':').map(Number);
+    const th = document.querySelectorAll('th')[i];
+    if (th && th.dataset.s && (d === 1 || d === -1)) applySort(i, d);
   }
 </script>
 </body>
