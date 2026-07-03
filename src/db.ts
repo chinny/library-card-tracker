@@ -40,9 +40,18 @@ function migrate(db: Db): void {
       fines_due     REAL,
       remaining     INTEGER,
       error         TEXT,
-      fetched_at    TEXT NOT NULL
+      fetched_at    TEXT NOT NULL,
+      last_success_at TEXT
     );
   `);
+  // Older DBs predate last_success_at; add it and backfill from successful rows.
+  const cols = db.prepare(`SELECT name FROM pragma_table_info('readings')`).all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'last_success_at')) {
+    db.exec(`
+      ALTER TABLE readings ADD COLUMN last_success_at TEXT;
+      UPDATE readings SET last_success_at = fetched_at WHERE ok = 1;
+    `);
+  }
 }
 
 /** Insert or update a card; barcode + pin are encrypted before storage. */
@@ -93,6 +102,8 @@ export interface ReadingRow {
   remaining: number | null;
   error: string | null;
   fetched_at: string;
+  /** When the data columns were last populated by a successful sync; null if never. */
+  last_success_at: string | null;
 }
 
 /** Latest reading per card, keyed by card id. */
@@ -102,16 +113,27 @@ export function getReadings(db: Db): Map<string, ReadingRow> {
 }
 
 export function saveReading(db: Db, s: AccountStatus): void {
+  if (s.ok) {
+    db.prepare(`
+      INSERT INTO readings (card_id, ok, physical, digital, holds_library, holds_digital, fines_due, remaining, error, fetched_at, last_success_at)
+      VALUES (?, 1, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+      ON CONFLICT(card_id) DO UPDATE SET
+        ok=1, physical=excluded.physical, digital=excluded.digital,
+        holds_library=excluded.holds_library, holds_digital=excluded.holds_digital,
+        fines_due=excluded.fines_due, remaining=excluded.remaining, error=NULL,
+        fetched_at=excluded.fetched_at, last_success_at=excluded.last_success_at
+    `).run(
+      s.cardId, s.physical, s.digital, s.holdsLibrary, s.holdsDigital,
+      s.finesDue, s.remaining, s.fetchedAt, s.fetchedAt,
+    );
+    return;
+  }
+  // Failure: record the attempt but keep the data columns (and last_success_at)
+  // from the previous successful sync so the UI can still show them.
   db.prepare(`
-    INSERT INTO readings (card_id, ok, physical, digital, holds_library, holds_digital, fines_due, remaining, error, fetched_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO readings (card_id, ok, physical, digital, holds_library, holds_digital, fines_due, remaining, error, fetched_at, last_success_at)
+    VALUES (?, 0, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, NULL)
     ON CONFLICT(card_id) DO UPDATE SET
-      ok=excluded.ok, physical=excluded.physical, digital=excluded.digital,
-      holds_library=excluded.holds_library, holds_digital=excluded.holds_digital,
-      fines_due=excluded.fines_due, remaining=excluded.remaining, error=excluded.error,
-      fetched_at=excluded.fetched_at
-  `).run(
-    s.cardId, s.ok ? 1 : 0, s.physical, s.digital, s.holdsLibrary, s.holdsDigital,
-    s.finesDue, s.remaining, s.error ?? null, s.fetchedAt,
-  );
+      ok=0, error=excluded.error, fetched_at=excluded.fetched_at
+  `).run(s.cardId, s.error ?? 'unknown error', s.fetchedAt);
 }

@@ -32,39 +32,47 @@ const FAMILIES: Family[] = [
     value: (_c, r) => (r ? Math.floor(new Date(r.fetched_at).getTime() / 1000) : null),
   },
   {
+    name: 'library_last_success_timestamp_seconds',
+    help: 'Unix time of the most recent successful read for this card (data age).',
+    value: (_c, r) =>
+      r?.last_success_at ? Math.floor(new Date(r.last_success_at).getTime() / 1000) : null,
+  },
+  {
     name: 'library_checkout_limit',
     help: 'Configured physical checkout limit for this card.',
     value: (c) => c.limit,
   },
+  // Data gauges report the last successful sync's values even when the latest
+  // attempt failed (library_scrape_success flags that; last_success shows age).
   {
     name: 'library_checkouts_physical',
-    help: 'Physical items currently checked out.',
-    value: (_c, r) => (r && r.ok ? r.physical : null),
+    help: 'Physical items currently checked out (from the last successful read).',
+    value: (_c, r) => (r?.last_success_at ? r.physical : null),
   },
   {
     name: 'library_remaining',
     help: 'Remaining physical checkout slots (limit - physical).',
-    value: (_c, r) => (r && r.ok ? r.remaining : null),
+    value: (_c, r) => (r?.last_success_at ? r.remaining : null),
   },
   {
     name: 'library_checkouts_digital',
     help: 'Digital loans currently out (informational; not capped here).',
-    value: (_c, r) => (r && r.ok ? r.digital : null),
+    value: (_c, r) => (r?.last_success_at ? r.digital : null),
   },
   {
     name: 'library_holds_library',
     help: 'Physical holds currently placed.',
-    value: (_c, r) => (r && r.ok ? r.holds_library : null),
+    value: (_c, r) => (r?.last_success_at ? r.holds_library : null),
   },
   {
     name: 'library_holds_digital',
     help: 'Digital holds currently placed.',
-    value: (_c, r) => (r && r.ok ? r.holds_digital : null),
+    value: (_c, r) => (r?.last_success_at ? r.holds_digital : null),
   },
   {
     name: 'library_fines_dollars',
     help: 'Outstanding fines in dollars.',
-    value: (_c, r) => (r && r.ok ? r.fines_due : null),
+    value: (_c, r) => (r?.last_success_at ? r.fines_due : null),
   },
 ];
 
