@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import Fastify from 'fastify';
 import type { CardConfig } from './connectors/types.js';
 import { loadKeyring } from './crypto.js';
-import { getReadings, listCards, openDb, removeCard, upsertCard } from './db.js';
+import { getCardNumber, getReadings, listCards, openDb, removeCard, upsertCard } from './db.js';
 import { renderMetrics } from './metrics.js';
 import { ICON_SVG, MANIFEST, SW_JS } from './pwa.js';
 import { refreshAll } from './refresh.js';
@@ -105,6 +105,17 @@ app.post('/api/cards', async (req, reply) => {
   if (!Number.isFinite(card.limit) || card.limit <= 0) card.limit = 50;
   upsertCard(db, kr, card, { card: cardNo, pin });
   return reply.code(201).send({ ok: true });
+});
+
+// Card number for barcode display. Behind the same Basic Auth as the rest of the
+// UI; returns only the number, never the PIN.
+app.get('/api/cards/:id/number', async (req, reply) => {
+  const { id } = req.params as { id: string };
+  try {
+    return { card: getCardNumber(db, kr, id) };
+  } catch {
+    return reply.code(404).send('no such card');
+  }
 });
 
 app.delete('/api/cards/:id', async (req, reply) => {

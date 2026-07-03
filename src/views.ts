@@ -51,7 +51,10 @@ function cardRow(card: CardConfig, r: ReadingRow | undefined): string {
       <td class="num">${esc(holds)}</td>
       <td class="num">${esc(fines)}</td>
       <td class="muted">${updated}</td>
-      <td><button class="link danger" onclick="removeCard('${esc(card.id)}')">remove</button></td>
+      <td class="actions">
+        <button class="link" onclick="showBarcode('${esc(card.id)}', '${esc(card.member)} · ${esc(card.system)}')">barcode</button>
+        <button class="link danger" onclick="removeCard('${esc(card.id)}')">remove</button>
+      </td>
     </tr>`;
 }
 
@@ -92,6 +95,16 @@ export function renderDashboard(cards: CardConfig[], readings: Map<string, Readi
   form.add input { font: inherit; padding: .4rem .5rem; border: 1px solid #8886; border-radius: 6px; background: transparent; color: inherit; }
   form.add .full { grid-column: 1/-1; }
   #msg { min-height: 1.2em; font-size: .85rem; }
+  td.actions { white-space: nowrap; }
+  td.actions .link + .link { margin-left: .6rem; }
+  /* Barcode modal: always light — scanners need dark bars on white. */
+  #bc { position: fixed; inset: 0; background: #000a; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+  #bc[hidden] { display: none; }
+  #bc .sheet { background: #fff; color: #111; border-radius: 12px; padding: 1.25rem 1.5rem; text-align: center; max-width: 92vw; }
+  #bc svg { width: 100%; max-width: 340px; height: 90px; display: block; margin: .5rem auto; }
+  #bc .num { font: 600 1.05rem/1.4 ui-monospace, monospace; letter-spacing: .12em; }
+  #bc .who { color: #666; font-size: .85rem; margin-bottom: .25rem; }
+  #bc .hint { color: #999; font-size: .75rem; margin-top: .5rem; }
 </style>
 </head>
 <body>
@@ -112,6 +125,15 @@ export function renderDashboard(cards: CardConfig[], readings: Map<string, Readi
     </thead>
     <tbody>${rows}</tbody>
   </table>
+
+  <div id="bc" hidden onclick="hideBarcode()">
+    <div class="sheet">
+      <div class="who" id="bcWho"></div>
+      <div id="bcSvg"></div>
+      <div class="num" id="bcNum"></div>
+      <div class="hint">tap anywhere to close</div>
+    </div>
+  </div>
 
   <form class="add" onsubmit="addCard(event)">
     <h2>Add a card</h2>
@@ -136,6 +158,46 @@ export function renderDashboard(cards: CardConfig[], readings: Map<string, Readi
     if (!confirm('Remove card ' + id + '?')) return;
     try { const r = await fetch('/api/cards/' + encodeURIComponent(id), { method: 'DELETE' }); if (!r.ok) throw new Error(await r.text()); location.reload(); }
     catch (e) { msg('Remove failed: ' + e.message, true); }
+  }
+  // Codabar (the classic library-card symbology), rendered as SVG. Per-character
+  // run-length binaries (1=bar unit, 0=space unit; wide elements pre-expanded),
+  // joined by a 1-unit inter-character space, wrapped in A/B start/stop.
+  const CODABAR = {
+    '0':'101010011','1':'101011001','2':'101001011','3':'110010101','4':'101101001',
+    '5':'110101001','6':'100101011','7':'100101101','8':'100110101','9':'110100101',
+    '-':'101001101','$':'101100101',':':'1101011011','/':'1101101011','.':'1101101101',
+    '+':'1011011011','A':'1011001001','B':'1001001011',
+  };
+  function codabarSvg(text) {
+    const chars = ('A' + text + 'B').split('');
+    if (chars.some((c) => !CODABAR[c])) return null;
+    const bits = chars.map((c) => CODABAR[c]).join('0');
+    const quiet = 10, width = bits.length + 2 * quiet;
+    let rects = '', x = quiet;
+    for (let i = 0; i < bits.length; ) {
+      let run = 1;
+      while (bits[i + run] === bits[i]) run++;
+      if (bits[i] === '1') rects += '<rect x="' + x + '" y="0" width="' + run + '" height="100"/>';
+      x += run; i += run;
+    }
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + width + ' 100" preserveAspectRatio="none" fill="#111">' + rects + '</svg>';
+  }
+  async function showBarcode(id, who) {
+    try {
+      const r = await fetch('/api/cards/' + encodeURIComponent(id) + '/number');
+      if (!r.ok) throw new Error(await r.text());
+      const { card } = await r.json();
+      const svg = codabarSvg(card);
+      document.getElementById('bcWho').textContent = who;
+      document.getElementById('bcSvg').innerHTML = svg || '';
+      document.getElementById('bcNum').textContent = card;
+      document.getElementById('bc').hidden = false;
+    } catch (e) { msg('Barcode failed: ' + e.message, true); }
+  }
+  function hideBarcode() {
+    document.getElementById('bc').hidden = true;
+    document.getElementById('bcSvg').innerHTML = '';
+    document.getElementById('bcNum').textContent = '';
   }
   async function addCard(ev) {
     ev.preventDefault();

@@ -87,6 +87,15 @@ export function getCredentials(db: Db, kr: Keyring, id: string): Credentials {
   return { card: decrypt(row.card_enc, kr), pin: decrypt(row.pin_enc, kr) };
 }
 
+/** Decrypt only the card number (for barcode display) — the PIN stays encrypted. */
+export function getCardNumber(db: Db, kr: Keyring, id: string): string {
+  const row = db.prepare('SELECT card_enc FROM cards WHERE id = ?').get(id) as
+    | { card_enc: string }
+    | undefined;
+  if (!row) throw new Error(`no card with id "${id}"`);
+  return decrypt(row.card_enc, kr);
+}
+
 export function removeCard(db: Db, id: string): boolean {
   return db.prepare('DELETE FROM cards WHERE id = ?').run(id).changes > 0;
 }
