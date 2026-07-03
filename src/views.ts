@@ -28,14 +28,19 @@ function ago(iso: string): string {
 }
 
 function cardRow(card: CardConfig, r: ReadingRow | undefined): string {
-  const cls = r && r.ok ? capClass(r.remaining) : 'unknown';
-  const cap = r && r.ok ? `${r.physical}/${card.limit}` : '—';
-  const remaining = r && r.ok && r.remaining !== null ? String(r.remaining) : '—';
-  const digital = r && r.ok ? String(r.digital ?? '—') : '—';
-  const holds = r && r.ok ? `${r.holds_library ?? '—'}/${r.holds_digital ?? '—'}` : '—';
-  const fines = r && r.ok ? `$${r.fines_due ?? 0}` : '—';
+  // Data columns hold the last successful sync even when the latest attempt
+  // failed — render them whenever a success exists, and flag the failure.
+  const hasData = !!r && r.last_success_at !== null;
+  const cls = hasData ? capClass(r.remaining) : 'unknown';
+  const cap = hasData ? `${r.physical}/${card.limit}` : '—';
+  const remaining = hasData && r.remaining !== null ? String(r.remaining) : '—';
+  const digital = hasData ? String(r.digital ?? '—') : '—';
+  const holds = hasData ? `${r.holds_library ?? '—'}/${r.holds_digital ?? '—'}` : '—';
+  const fines = hasData ? `$${r.fines_due ?? 0}` : '—';
   const updated = r ? esc(ago(r.fetched_at)) : 'never';
-  const note = r && !r.ok ? `<div class="err">⚠ ${esc(r.error)}</div>` : '';
+  const stale = r && !r.ok && hasData
+    ? `<div class="muted">showing data from ${esc(ago(r.last_success_at!))}</div>` : '';
+  const note = r && !r.ok ? `<div class="err">⚠ sync failed: ${esc(r.error)}</div>${stale}` : '';
   return `
     <tr>
       <td>${esc(card.member)}</td>
