@@ -60,7 +60,11 @@ function cardRow(card: CardConfig, r: ReadingRow | undefined): string {
     </tr>`;
 }
 
-export function renderDashboard(cards: CardConfig[], readings: Map<string, ReadingRow>): string {
+export function renderDashboard(
+  cards: CardConfig[],
+  readings: Map<string, ReadingRow>,
+  opts: { autoRefresh?: boolean } = {},
+): string {
   const rows = cards.length
     ? cards.map((c) => cardRow(c, readings.get(c.id))).join('')
     : `<tr><td colspan="9" class="muted">No cards yet — add one below.</td></tr>`;
@@ -94,6 +98,7 @@ export function renderDashboard(cards: CardConfig[], readings: Map<string, Readi
   .bar { display: flex; gap: .5rem; align-items: center; margin: 0 0 1rem; }
   button { font: inherit; cursor: pointer; }
   button.primary { background: #2563eb; color: #fff; border: 0; border-radius: 6px; padding: .45rem .9rem; }
+  button.primary:disabled { opacity: .55; cursor: default; }
   button.link { background: none; border: 0; color: #2563eb; padding: 0; }
   button.link.danger { color: #c02828; }
   form.add { margin-top: 1.5rem; border-top: 1px solid #8884; padding-top: 1rem; display: grid; gap: .5rem; grid-template-columns: repeat(2, 1fr); }
@@ -118,7 +123,7 @@ export function renderDashboard(cards: CardConfig[], readings: Map<string, Readi
   <p class="sub">Physical checkouts vs. limit per card. Digital loans shown for info only.</p>
 
   <div class="bar">
-    <button class="primary" onclick="refresh()">↻ Refresh now</button>
+    <button id="refreshBtn" class="primary" onclick="refresh()">↻ Refresh now</button>
     <span id="msg"></span>
   </div>
 
@@ -154,12 +159,49 @@ export function renderDashboard(cards: CardConfig[], readings: Map<string, Readi
   </form>
 
 <script>
+  // Server-decided: true when any card's data is older than LIBCARD_STALE_HOURS.
+  const AUTO_REFRESH = ${opts.autoRefresh === true};
   const msg = (t, err) => { const m = document.getElementById('msg'); m.textContent = t; m.style.color = err ? '#c02828' : '#888'; };
-  async function refresh() {
-    msg('Refreshing… (this can take ~30s)');
-    try { const r = await fetch('/api/refresh', { method: 'POST' }); if (!r.ok) throw new Error(await r.text()); location.reload(); }
-    catch (e) { msg('Refresh failed: ' + e.message, true); }
+  // ── Refresh with progress ──
+  // The button disables while a run is in flight; /api/refresh/status is polled
+  // for per-card progress. Runs we didn't start (scheduler, another tab) are
+  // tracked the same way and the page reloads when they finish.
+  const refreshBtn = document.getElementById('refreshBtn');
+  let pollTimer = null;
+  function setBusy(b) { refreshBtn.disabled = b; refreshBtn.textContent = b ? '↻ Refreshing…' : '↻ Refresh now'; }
+  function progressText(s) {
+    return 'Refreshing card ' + Math.min(s.done + 1, s.total || 1) + '/' + (s.total || '?')
+      + (s.current ? ' — ' + s.current : '') + '…';
   }
+  function pollProgress(reloadWhenDone) {
+    if (pollTimer) return;
+    pollTimer = setInterval(async () => {
+      try {
+        const r = await fetch('/api/refresh/status');
+        if (!r.ok) return;
+        const s = await r.json();
+        if (s.running) msg(progressText(s));
+        else if (reloadWhenDone) location.reload();
+      } catch {} // transient poll errors: keep trying, the POST handles failure
+    }, 1500);
+  }
+  async function refresh() {
+    if (refreshBtn.disabled) return;
+    setBusy(true);
+    msg('Refreshing… (this can take ~30s)');
+    pollProgress(false); // POST resolution drives the reload
+    try { const r = await fetch('/api/refresh', { method: 'POST' }); if (!r.ok) throw new Error(await r.text()); location.reload(); }
+    catch (e) { clearInterval(pollTimer); pollTimer = null; setBusy(false); msg('Refresh failed: ' + e.message, true); }
+  }
+  // On load: attach to an already-running refresh, else auto-refresh stale data.
+  (async () => {
+    try {
+      const r = await fetch('/api/refresh/status');
+      const s = r.ok ? await r.json() : null;
+      if (s && s.running) { setBusy(true); msg(progressText(s)); pollProgress(true); return; }
+    } catch {}
+    if (AUTO_REFRESH) refresh();
+  })();
   async function removeCard(id) {
     if (!confirm('Remove card ' + id + '?')) return;
     try { const r = await fetch('/api/cards/' + encodeURIComponent(id), { method: 'DELETE' }); if (!r.ok) throw new Error(await r.text()); location.reload(); }

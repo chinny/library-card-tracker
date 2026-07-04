@@ -5,23 +5,28 @@ import { loadKeyring } from './crypto.js';
 import { getCardNumber, getReadings, listCards, openDb, removeCard, upsertCard } from './db.js';
 import { renderMetrics } from './metrics.js';
 import { ICON_SVG, MANIFEST, SW_JS } from './pwa.js';
-import { refreshAll } from './refresh.js';
+import { refreshAll, type RefreshProgress } from './refresh.js';
 import { renderDashboard } from './views.js';
 
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || '0.0.0.0';
 const REFRESH_MS = Number(process.env.LIBCARD_REFRESH_MINUTES || 360) * 60_000;
+// Data older than this triggers an automatic refresh on page load (0 disables).
+const STALE_MS = Number(process.env.LIBCARD_STALE_HOURS || 8) * 3_600_000;
 
 const db = openDb();
 const kr = loadKeyring(); // fail fast if the master key is missing/wrong
 
-// Single-flight refresh: scheduler and manual triggers share one run.
+// Single-flight refresh: scheduler and manual triggers share one run. The UI
+// polls `progress` to show per-card status and to notice runs it didn't start.
 let inFlight: Promise<unknown> | null = null;
+let progress: RefreshProgress & { running: boolean } = { running: false, done: 0, total: 0, current: null };
 function refreshOnce(): Promise<unknown> {
   if (!inFlight) {
-    inFlight = refreshAll(db, kr)
+    progress = { running: true, done: 0, total: 0, current: null };
+    inFlight = refreshAll(db, kr, (p) => { progress = { running: true, ...p }; })
       .catch((e) => app.log.error({ err: e }, 'refresh failed'))
-      .finally(() => { inFlight = null; });
+      .finally(() => { inFlight = null; progress = { ...progress, running: false, current: null }; });
   }
   return inFlight;
 }
@@ -74,7 +79,16 @@ app.get('/icons/icon.svg', async (_req, reply) => {
 });
 
 app.get('/', async (_req, reply) => {
-  reply.type('text/html').send(renderDashboard(listCards(db), getReadings(db)));
+  const cards = listCards(db);
+  const readings = getReadings(db);
+  // Stale when any card has never been read or its last attempt is old enough;
+  // failed attempts still bump fetched_at, so a broken card can't cause a
+  // refresh loop on every load.
+  const stale = STALE_MS > 0 && cards.some((c) => {
+    const r = readings.get(c.id);
+    return !r || Date.now() - Date.parse(r.fetched_at) > STALE_MS;
+  });
+  reply.type('text/html').send(renderDashboard(cards, readings, { autoRefresh: stale }));
 });
 
 app.get('/api/status', async () => {
@@ -127,6 +141,8 @@ app.post('/api/refresh', async () => {
   await refreshOnce();
   return { ok: true };
 });
+
+app.get('/api/refresh/status', async () => progress);
 
 // ── Scheduler ──
 if (REFRESH_MS > 0) {
