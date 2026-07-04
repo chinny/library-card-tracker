@@ -4,9 +4,21 @@ import type { AccountStatus } from './connectors/types.js';
 import type { Keyring } from './crypto.js';
 import { getCredentials, listCards, saveReading, type Db } from './db.js';
 
+/** Snapshot of a refresh run, reported before each card and once at the end. */
+export interface RefreshProgress {
+  done: number;
+  total: number;
+  /** "Member · system" label of the card being fetched; null when the run is over. */
+  current: string | null;
+}
+
 // Shared refresh used by both the CLI and the server scheduler: launch one browser,
 // read every card sequentially (gentle on the libraries), persist each reading.
-export async function refreshAll(db: Db, kr: Keyring): Promise<AccountStatus[]> {
+export async function refreshAll(
+  db: Db,
+  kr: Keyring,
+  onProgress?: (p: RefreshProgress) => void,
+): Promise<AccountStatus[]> {
   const cards = listCards(db);
   const out: AccountStatus[] = [];
   if (cards.length === 0) return out;
@@ -14,6 +26,7 @@ export async function refreshAll(db: Db, kr: Keyring): Promise<AccountStatus[]> 
   const browser = await chromium.launch();
   try {
     for (const card of cards) {
+      onProgress?.({ done: out.length, total: cards.length, current: `${card.member} · ${card.system}` });
       let status: AccountStatus;
       try {
         const creds = getCredentials(db, kr, card.id); // in-memory only
@@ -32,5 +45,6 @@ export async function refreshAll(db: Db, kr: Keyring): Promise<AccountStatus[]> 
   } finally {
     await browser.close();
   }
+  onProgress?.({ done: out.length, total: cards.length, current: null });
   return out;
 }
