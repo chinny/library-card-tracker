@@ -24,7 +24,7 @@ let progress: RefreshProgress & { running: boolean } = { running: false, done: 0
 function refreshOnce(): Promise<unknown> {
   if (!inFlight) {
     progress = { running: true, done: 0, total: 0, current: null };
-    inFlight = refreshAll(db, kr, (p) => { progress = { running: true, ...p }; })
+    inFlight = refreshAll(db, kr, (p) => { progress = { running: true, ...p }; }, app.log)
       .catch((e) => app.log.error({ err: e }, 'refresh failed'))
       .finally(() => { inFlight = null; progress = { ...progress, running: false, current: null }; });
   }

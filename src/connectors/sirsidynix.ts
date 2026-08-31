@@ -21,6 +21,13 @@ function assertSafeBaseUrl(baseUrl: string): URL {
   return u;
 }
 
+// The physical-checkout count, and the marker that the account panel has rendered.
+const PANEL_RE = /Checkouts\s+Digital:\s*\d+\s+Library:\s*(\d+)/i;
+// The panel fills in left to right, so "Total due" landing means Holds/Fines are
+// settled too. Best-effort only: an account can legitimately render without it.
+const PANEL_COMPLETE_RE = /Checkouts\s+Digital:.*Holds\s+Digital:.*Total due:/i;
+const PANEL_SETTLE_MS = 5_000;
+
 function num(flat: string, re: RegExp): number | null {
   const m = flat.match(re);
   return m && m[1] !== undefined ? Number(m[1]) : null;
@@ -83,23 +90,51 @@ export async function fetchAccount(
       return { ...base, error: 'login failed (credentials rejected)' };
     }
 
-    // Open the patron dashboard via the "My Account" link.
+    // Open the patron dashboard via the "My Account" link. This is an in-page hash
+    // navigation that loads the panel by XHR -- it starts no page load, so
+    // waitForLoadState('networkidle') returns immediately and proves nothing. Wait
+    // for the panel text itself, or we parse the still-rendered home page.
     await page.getByRole('link', { name: 'My Account' }).first().click({ timeout: 15_000 });
-    await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
-    await page.waitForTimeout(3_000);
+    // A locator re-resolves on every poll, so it survives the navigation the click
+    // triggers; waitForFunction dies on it with "execution context was destroyed".
+    const panelReady = await page
+      .locator('body')
+      .filter({ hasText: PANEL_RE })
+      .first()
+      .waitFor({ state: 'attached', timeout: 30_000 })
+      .then(() => true)
+      .catch(() => false);
+
+    // Holds and fines trail the checkout counts; give them a bounded moment to land
+    // rather than reporting nulls for a panel that was simply read too early.
+    if (panelReady) {
+      await page
+        .locator('body')
+        .filter({ hasText: PANEL_COMPLETE_RE })
+        .first()
+        .waitFor({ state: 'attached', timeout: PANEL_SETTLE_MS })
+        .catch(() => {});
+    }
 
     // Parse the status panel: "Checkouts Digital: N Library: N Holds Digital: N
     // Library: N Fines Total due: $N.NN"
     const flat = ((await page.locator('body').innerText().catch(() => '')) || '').replace(/\s+/g, ' ');
-    const physical = num(flat, /Checkouts\s+Digital:\s*\d+\s+Library:\s*(\d+)/i);
+    const physical = num(flat, PANEL_RE);
     const digital = num(flat, /Checkouts\s+Digital:\s*(\d+)/i);
     const holdsDigital = num(flat, /Holds\s+Digital:\s*(\d+)/i);
     const holdsLibrary = num(flat, /Holds\s+Digital:\s*\d+\s+Library:\s*(\d+)/i);
     const finesM = flat.match(/Total due:\s*\$?([\d.]+)/i);
     const finesDue = finesM && finesM[1] !== undefined ? Number(finesM[1]) : null;
 
-    if (physical === null && digital === null) {
-      return { ...base, error: 'could not parse account panel' };
+    // `physical` is the number the whole dashboard exists to show, so a page that
+    // parsed only the digital half is a partial render, not a success -- reporting
+    // ok with physical=null silently publishes a wrong "0 of 50".
+    if (physical === null) {
+      const seen = /Checkouts\s+Digital:/i.test(flat) ? 'panel present but no Library count' : 'panel absent';
+      return {
+        ...base,
+        error: `could not parse account panel (${seen}; panelReady=${panelReady}; url=${page.url()})`,
+      };
     }
 
     return {
@@ -110,7 +145,7 @@ export async function fetchAccount(
       holdsLibrary,
       holdsDigital,
       finesDue,
-      remaining: physical === null ? null : card.limit - physical,
+      remaining: card.limit - physical,
     };
   } catch (e) {
     // Never include credentials in the error.
