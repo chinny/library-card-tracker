@@ -18,6 +18,16 @@ export interface Credentials {
   pin: string;
 }
 
+/** One checkout needing attention. Titles are display-only; never put in metrics. */
+export interface ProblemItem {
+  kind: 'overdue' | 'lost';
+  title: string;
+  /** Due date as the catalog shows it (e.g. "10/28/26"); overdue items only. */
+  due: string | null;
+  /** Replacement charge in dollars; lost items only. */
+  amount: number | null;
+}
+
 /** Result of reading one account. `ok=false` carries `error` instead of counts. */
 export interface AccountStatus {
   cardId: string;
@@ -31,6 +41,12 @@ export interface AccountStatus {
   holdsLibrary: number | null;
   holdsDigital: number | null;
   finesDue: number | null;
+  /** Overdue checkouts, or null if the checkouts list didn't load. */
+  overdue: number | null;
+  /** Items billed as lost, or null if the fines list didn't load. */
+  lost: number | null;
+  /** The overdue/lost items themselves (empty when none or unknown). */
+  problems: ProblemItem[];
   limit: number;
   /** limit - physical, or null if unavailable. */
   remaining: number | null;

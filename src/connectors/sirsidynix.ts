@@ -1,5 +1,5 @@
-import type { Browser } from 'playwright';
-import type { AccountStatus, CardConfig, Credentials } from './types.js';
+import type { Browser, Page } from 'playwright';
+import type { AccountStatus, CardConfig, Credentials, ProblemItem } from './types.js';
 
 // SirsiDynix Enterprise patron-account connector. The flow is identical across
 // Enterprise instances, so this is parameterized entirely by `card.baseUrl`.
@@ -28,6 +28,87 @@ const PANEL_RE = /Checkouts\s+Digital:\s*\d+\s+Library:\s*(\d+)/i;
 const PANEL_COMPLETE_RE = /Checkouts\s+Digital:.*Holds\s+Digital:.*Total due:/i;
 const PANEL_SETTLE_MS = 5_000;
 
+// Lists on the same account page, loaded by XHR after the status panel.
+// Overdue checkouts carry a red "Items Overdue:" icon in their alert cell; lost
+// items are not checkouts any more but bills with reason "Lost materials"
+// (usually followed by a separate "Fee for processing" bill for the same title).
+const CHECKOUT_ROWS = '#myCheckouts_checkoutslistnonmobile_table tr.checkoutsLine';
+const FINE_ROWS = '[id^="finesTable_personal"] .tbody .tr';
+const LIST_WAIT_MS = 10_000;
+
+/** Structural DOM element type for evaluateAll callbacks (tsconfig has no DOM lib). */
+interface El {
+  textContent: string | null;
+  getAttribute(name: string): string | null;
+  querySelector(sel: string): El | null;
+}
+
+const clean = (s: string): string => s.replace(/\s+/g, ' ').trim();
+
+export interface Problems {
+  overdue: number | null;
+  lost: number | null;
+  problems: ProblemItem[];
+}
+
+/**
+ * Read overdue checkouts and lost-item bills from an open account page. A list
+ * is only waited on when the status panel says it should exist (checkouts > 0,
+ * fines > 0); if it never shows up its count is null (unknown), not 0.
+ */
+export async function readProblems(
+  page: Page,
+  physical: number,
+  finesDue: number | null,
+): Promise<Problems> {
+  const ready = (sel: string, expected: boolean): Promise<boolean> =>
+    expected
+      ? page.locator(sel).first().waitFor({ state: 'attached', timeout: LIST_WAIT_MS }).then(() => true, () => false)
+      : Promise.resolve(true);
+  const [checkoutsReady, finesReady] = await Promise.all([
+    ready(CHECKOUT_ROWS, physical > 0),
+    ready(FINE_ROWS, (finesDue ?? 0) > 0),
+  ]);
+
+  // Callbacks run in the page: keep them free of named inner functions (tsx/esbuild
+  // wraps those in a __name() helper that doesn't exist there) and normalize in Node.
+  const overdueRows = checkoutsReady
+    ? await page.locator(CHECKOUT_ROWS).evaluateAll((rows: El[]) =>
+        rows
+          .filter((tr) => {
+            const img = tr.querySelector('td.checkoutsAlert img');
+            return !!img && (/overdue/i.test(img.getAttribute('alt') ?? '') || /red!/.test(img.getAttribute('src') ?? ''));
+          })
+          .map((tr) => ({
+            title: tr.querySelector('td.checkoutsBookInfo a')?.textContent ?? '',
+            due: tr.querySelector('td.checkoutsDueDate')?.textContent ?? '',
+          })),
+      )
+    : null;
+
+  const lostRows = finesReady
+    ? await page.locator(FINE_ROWS).evaluateAll((rows: El[]) =>
+        rows
+          .filter((tr) => /\blost\b/i.test(tr.querySelector('.medCol')?.textContent ?? ''))
+          .map((tr) => ({
+            title: tr.querySelector('.detailTitle a')?.textContent ?? '',
+            amount: tr.querySelector('.moneyCol')?.textContent ?? '',
+          })),
+      )
+    : null;
+
+  const problems: ProblemItem[] = [
+    ...(overdueRows ?? []).map((r) => ({
+      kind: 'overdue' as const, title: clean(r.title) || 'Untitled', due: clean(r.due) || null, amount: null,
+    })),
+    ...(lostRows ?? []).map((r) => {
+      const m = clean(r.amount).match(/[\d.]+/);
+      return { kind: 'lost' as const, title: clean(r.title) || 'Untitled', due: null, amount: m ? Number(m[0]) : null };
+    }),
+  ];
+  return { overdue: overdueRows?.length ?? null, lost: lostRows?.length ?? null, problems };
+}
+
 function num(flat: string, re: RegExp): number | null {
   const m = flat.match(re);
   return m && m[1] !== undefined ? Number(m[1]) : null;
@@ -49,6 +130,9 @@ export async function fetchAccount(
     holdsLibrary: null,
     holdsDigital: null,
     finesDue: null,
+    overdue: null,
+    lost: null,
+    problems: [],
     limit: card.limit,
     remaining: null,
     fetchedAt,
@@ -137,8 +221,15 @@ export async function fetchAccount(
       };
     }
 
+    // Best-effort: a list that fails to load leaves its count unknown (null)
+    // rather than failing the capacity read.
+    const problems = await readProblems(page, physical, finesDue).catch(
+      (): Problems => ({ overdue: null, lost: null, problems: [] }),
+    );
+
     return {
       ...base,
+      ...problems,
       ok: true,
       physical,
       digital,

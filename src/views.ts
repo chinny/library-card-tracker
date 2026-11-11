@@ -1,5 +1,5 @@
-import type { CardConfig } from './connectors/types.js';
-import type { ReadingRow } from './db.js';
+import type { CardConfig, ProblemItem } from './connectors/types.js';
+import { parseProblems, type ReadingRow } from './db.js';
 import { HEAD_TAGS } from './pwa.js';
 
 // Server-rendered dashboard. No framework / build step. User-supplied strings
@@ -40,8 +40,44 @@ const I = {
   trash: icon('<path d="M3 6h18"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>'),
   close: icon('<path d="M18 6 6 18M6 6l12 12"/>'),
   alert: icon('<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>'),
+  chev: icon('<path d="m9 18 6-6-6-6"/>'),
   books: icon('<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>'),
 };
+
+/** Whole days past a catalog due date like "10/28/26"; null if unparseable. */
+export function daysLate(due: string | null, now = new Date()): number | null {
+  const m = due?.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (!m) return null;
+  const y = Number(m[3]) < 100 ? 2000 + Number(m[3]) : Number(m[3]);
+  const dueDay = Date.UTC(y, Number(m[1]) - 1, Number(m[2]));
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((today - dueDay) / 86_400_000);
+}
+
+const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? '' : 's'}`;
+
+/** Overdue/lost pills that expand into the item list. Empty when there are none. */
+function problemsBlock(r: ReadingRow): string {
+  const overdue = r.overdue ?? 0;
+  const lost = r.lost ?? 0;
+  if (overdue + lost === 0) return '';
+  // Lost first (it costs money), then overdue oldest-first.
+  const items = parseProblems(r)
+    .map((p): ProblemItem & { late: number | null } => ({ ...p, late: daysLate(p.due) }))
+    .sort((a, b) => (a.kind === b.kind ? (b.late ?? 0) - (a.late ?? 0) : a.kind === 'lost' ? -1 : 1));
+  const li = items.map((p) => {
+    const when = p.kind === 'lost'
+      ? (p.amount !== null ? money(p.amount) : 'lost')
+      : (p.late !== null && p.late > 0 ? `${p.late}d late` : `due ${esc(p.due ?? '?')}`);
+    const tip = p.kind === 'lost' ? 'Billed as lost' : `Due ${p.due ?? 'unknown'}`;
+    return `<li class="k-${p.kind}"><span class="dot" aria-hidden="true"></span><span class="t" title="${esc(p.title)}">${esc(p.title)}</span><span class="when" title="${esc(tip)}">${when}</span></li>`;
+  }).join('');
+  const pills = [
+    lost ? `<span class="pill lost">${lost} lost</span>` : '',
+    overdue ? `<span class="pill od">${overdue} overdue</span>` : '',
+  ].join('');
+  return `<details class="probs"><summary aria-label="${esc([lost ? `${lost} lost` : '', overdue ? `${overdue} overdue` : ''].filter(Boolean).join(', '))} — show items">${pills}${I.chev}</summary><ul>${li}</ul></details>`;
+}
 
 function cardRow(card: CardConfig, r: ReadingRow | undefined): string {
   // Data columns hold the last successful sync even when the latest attempt
@@ -63,15 +99,16 @@ function cardRow(card: CardConfig, r: ReadingRow | undefined): string {
   // data-v carries the machine value for header sorting (display text is formatted).
   const v = (x: number | string | null | undefined): string => (x ?? '') === '' ? '' : esc(String(x));
   const who = `${esc(card.member)} · ${esc(card.system)}`;
+  const probs = hasData ? problemsBlock(r) : '';
   return `
-      <tr class="s-${cls}">
+      <tr class="s-${cls}${probs ? ' has-probs' : ''}">
         <td class="c-member" data-v="${esc(card.member.toLowerCase())}">${esc(card.member)}</td>
         <td class="c-system" data-v="${esc(card.system.toLowerCase())}"><span class="chip">${esc(card.system)}</span></td>
         <td class="c-meter" data-v="${hasData ? v(r.physical) : ''}">
           <div class="meter-row">
             <div class="meter" role="meter" aria-label="Physical checkouts" aria-valuemin="0" aria-valuemax="${card.limit}" aria-valuenow="${hasData ? v(r.physical) : 0}"><span style="width:${pct}%"></span></div>
             <span class="meter-val"><b>${physical}</b> / ${card.limit}</span>
-          </div>${note}
+          </div>${note}${probs}
         </td>
         <td class="c-left num" data-v="${hasData ? v(r.remaining) : ''}"><span class="left"><b>${esc(remaining)}</b><small>left</small></span></td>
         <td class="c-dig num" data-label="Digital" data-v="${hasData ? v(r.digital) : ''}">${esc(digital)}</td>
@@ -92,12 +129,20 @@ interface Summary {
   digital: number;
   holds: number;
   fines: number;
+  /** null until at least one card reports overdue/lost counts. */
+  overdue: number | null;
+  lost: number;
+  /** Cards with at least one overdue or lost item. */
+  troubled: number;
   withData: number;
   lastUpdated: string | null;
 }
 
 function summarize(cards: CardConfig[], readings: Map<string, ReadingRow>): Summary {
-  const s: Summary = { best: null, free: null, physical: null, digital: 0, holds: 0, fines: 0, withData: 0, lastUpdated: null };
+  const s: Summary = {
+    best: null, free: null, physical: null, digital: 0, holds: 0, fines: 0,
+    overdue: null, lost: 0, troubled: 0, withData: 0, lastUpdated: null,
+  };
   for (const c of cards) {
     const r = readings.get(c.id);
     if (!r) continue;
@@ -112,8 +157,27 @@ function summarize(cards: CardConfig[], readings: Map<string, ReadingRow>): Summ
     s.digital += r.digital ?? 0;
     s.holds += (r.holds_library ?? 0) + (r.holds_digital ?? 0);
     s.fines += r.fines_due ?? 0;
+    if (r.overdue !== null || r.lost !== null) {
+      s.overdue = (s.overdue ?? 0) + (r.overdue ?? 0);
+      s.lost += r.lost ?? 0;
+      if ((r.overdue ?? 0) + (r.lost ?? 0) > 0) s.troubled++;
+    }
   }
   return s;
+}
+
+function problemsStat(s: Summary, cardCount: number): string {
+  const bad = (s.overdue ?? 0) + s.lost > 0;
+  const sub = s.overdue === null
+    ? 'after next refresh'
+    : bad
+      ? `<b>${s.lost} lost</b> · ${s.troubled} of ${plural(cardCount, 'card')}`
+      : 'all accounts clear';
+  return `<div class="stat${bad ? ' alert' : ''}">
+      <div class="stat-label">Overdue · lost</div>
+      <div class="stat-value">${s.overdue === null ? '—' : `${s.overdue}<small> overdue</small>`}</div>
+      <div class="stat-sub">${sub}</div>
+    </div>`;
 }
 
 function stats(s: Summary, cardCount: number): string {
@@ -141,6 +205,7 @@ function stats(s: Summary, cardCount: number): string {
       <div class="stat-value">${s.withData ? s.holds : dash}</div>
       <div class="stat-sub${s.fines > 0 ? ' due' : ''}">${money(s.fines)} in fines</div>
     </div>
+    ${problemsStat(s, cardCount)}
   </section>`;
 }
 
@@ -269,11 +334,13 @@ export function renderDashboard(
   @keyframes indet { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
 
   /* ── Stats ── */
-  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+  .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 24px; }
   .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); min-width: 0; }
   .stat.feature { background: var(--accent-soft); border-color: transparent; }
   .stat-label { font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
   .stat.feature .stat-label { color: var(--accent); }
+  .stat.alert { background: var(--bad-soft); border-color: transparent; }
+  .stat.alert .stat-label, .stat.alert .stat-sub b { color: var(--bad); }
   .stat-value { font-size: 1.75rem; font-weight: 650; line-height: 1.15; margin-top: 6px; letter-spacing: -.02em; }
   .stat-value small { font-size: .9rem; font-weight: 500; color: var(--muted); letter-spacing: 0; }
   .stat-sub { font-size: .8rem; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -315,6 +382,23 @@ export function renderDashboard(
   .note { display: flex; gap: 6px; align-items: flex-start; margin-top: 6px; font-size: .78rem; color: var(--bad); max-width: 340px; }
   .note .ico { width: 14px; height: 14px; margin-top: 2px; }
   .note span { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  /* Overdue / lost: pills that expand into the item list. */
+  .probs { margin-top: 8px; font-size: .8rem; }
+  .probs summary { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; cursor: pointer; list-style: none; border-radius: 999px; }
+  .probs summary::-webkit-details-marker { display: none; }
+  .probs summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .probs summary .ico { width: 14px; height: 14px; color: var(--muted); transition: transform .15s; }
+  .probs[open] summary .ico { transform: rotate(90deg); }
+  .pill { display: inline-block; white-space: nowrap; padding: 2px 9px; border-radius: 999px; font-weight: 600; font-size: .75rem; line-height: 1.5; }
+  .pill.od { background: var(--warn-soft); color: var(--warn); }
+  .pill.lost { background: var(--bad-soft); color: var(--bad); }
+  .probs ul { list-style: none; margin: 8px 0 2px; padding: 0; display: grid; gap: 5px; max-width: 420px; }
+  .probs li { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .probs .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--warn); transform: translateY(-1px); }
+  .probs .k-lost .dot { background: var(--bad); }
+  .probs .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .probs .when { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .probs .k-lost .when { color: var(--bad); font-weight: 600; }
   .c-upd { white-space: nowrap; font-size: .85rem; }
   .c-act { white-space: nowrap; text-align: right; }
   .c-act .btn span:not(.sr) { display: none; }
@@ -326,11 +410,19 @@ export function renderDashboard(
   .empty-ico .ico { width: 26px; height: 26px; }
   .empty p { color: var(--muted); margin: 6px 0 18px; }
 
+  @media (min-width: 720px) and (max-width: 959px) {
+    .stats { grid-template-columns: repeat(6, 1fr); }
+    .stat { grid-column: span 2; }
+    .stat:nth-child(n + 4) { grid-column: span 3; }
+  }
+
   /* ── Phones: rows become tiles ── */
   @media (max-width: 719px) {
     .top-actions { width: 100%; }
     .top-actions .btn { flex: 1; }
     .stats { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .stat.feature { grid-column: 1 / -1; }
+    .probs ul { max-width: none; }
     .stat-value { font-size: 1.5rem; }
     .sort-m { display: block; }
     .table-wrap { background: none; border: 0; box-shadow: none; overflow: visible; }
@@ -426,7 +518,7 @@ export function renderDashboard(
     <span id="progressText">Refreshing…</span>
   </div>
 ${list}
-  <p class="foot">Physical checkouts count against each card's limit. Digital loans are shown for info only.</p>
+  <p class="foot">Physical checkouts count against each card's limit. Digital loans are shown for info only. Overdue and lost items are physical checkouts only.</p>
 </main>
 
 <dialog id="addDlg" aria-labelledby="addTitle">

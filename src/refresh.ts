@@ -74,7 +74,7 @@ async function attempt(
     return {
       cardId: card.id, member: card.member, system: card.system, ok: false,
       physical: null, digital: null, holdsLibrary: null, holdsDigital: null,
-      finesDue: null, limit: card.limit, remaining: null,
+      finesDue: null, overdue: null, lost: null, problems: [], limit: card.limit, remaining: null,
       fetchedAt: new Date().toISOString(), error: (e as Error).message,
     };
   }
