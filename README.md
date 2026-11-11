@@ -42,7 +42,7 @@ export LIBCARD_MASTER_KEY=<your key>     # same key used to import the cards
 export LIBCARD_AUTH_USER=you LIBCARD_AUTH_PASS=somepass   # Basic Auth (skip = unauthenticated, dev only)
 npm run serve                            # http://localhost:8080
 ```
-Shows a capacity grid (physical `n/50`, color-coded by slots left; digital/holds/fines as info), an **Add card** form, per-card **remove**, and a **Refresh now** button with per-card progress (disabled while a refresh runs; the page reloads when it finishes). A background scheduler re-reads every `LIBCARD_REFRESH_MINUTES` (default 360), and opening the page auto-refreshes when any card's data is older than `LIBCARD_STALE_HOURS` (default 8).
+Shows summary tiles (card with the most room, free slots, checkouts, holds/fines) and a capacity meter per card (physical `n/50`, color-coded by slots left; digital/holds/fines as info) — a sortable table on desktop, tiles on phones. Follows the system light/dark theme. **Add card** opens a dialog; each card has **barcode** and **remove** actions; **Refresh** shows per-card progress (disabled while a refresh runs; the page reloads when it finishes). A background scheduler re-reads every `LIBCARD_REFRESH_MINUTES` (default 360), and opening the page auto-refreshes when any card's data is older than `LIBCARD_STALE_HOURS` (default 8).
 
 Env: `PORT` (8080), `HOST` (0.0.0.0), `LIBCARD_DB` (data/library.sqlite), `LIBCARD_REFRESH_MINUTES` (360; 0 disables), `LIBCARD_STALE_HOURS` (8; 0 disables auto-refresh on load), `LIBCARD_AUTH_USER`/`LIBCARD_AUTH_PASS`.
 
