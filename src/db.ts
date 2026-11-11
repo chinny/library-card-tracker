@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { decrypt, encrypt, type Keyring } from './crypto.js';
-import type { AccountStatus, CardConfig, Credentials } from './connectors/types.js';
+import type { AccountStatus, CardConfig, Credentials, ProblemItem } from './connectors/types.js';
 
 // SQLite store (built-in node:sqlite — no native deps). Holds card definitions with
 // the barcode AND pin encrypted at rest, plus the latest reading per card.
@@ -39,19 +39,29 @@ function migrate(db: Db): void {
       holds_digital INTEGER,
       fines_due     REAL,
       remaining     INTEGER,
+      overdue       INTEGER,
+      lost          INTEGER,
+      problems      TEXT,
       error         TEXT,
       fetched_at    TEXT NOT NULL,
       last_success_at TEXT
     );
   `);
-  // Older DBs predate last_success_at; add it and backfill from successful rows.
-  const cols = db.prepare(`SELECT name FROM pragma_table_info('readings')`).all() as { name: string }[];
-  if (!cols.some((c) => c.name === 'last_success_at')) {
+  // Older DBs predate later columns; add them in place.
+  const cols = new Set(
+    (db.prepare(`SELECT name FROM pragma_table_info('readings')`).all() as { name: string }[]).map((c) => c.name),
+  );
+  if (!cols.has('last_success_at')) {
+    // Backfill from successful rows.
     db.exec(`
       ALTER TABLE readings ADD COLUMN last_success_at TEXT;
       UPDATE readings SET last_success_at = fetched_at WHERE ok = 1;
     `);
   }
+  // Overdue/lost stay NULL (unknown) until the next successful sync.
+  if (!cols.has('overdue')) db.exec('ALTER TABLE readings ADD COLUMN overdue INTEGER');
+  if (!cols.has('lost')) db.exec('ALTER TABLE readings ADD COLUMN lost INTEGER');
+  if (!cols.has('problems')) db.exec('ALTER TABLE readings ADD COLUMN problems TEXT');
 }
 
 /** Insert or update a card; barcode + pin are encrypted before storage. */
@@ -109,6 +119,12 @@ export interface ReadingRow {
   holds_digital: number | null;
   fines_due: number | null;
   remaining: number | null;
+  /** Overdue checkouts; null if unknown (list didn't load, or not synced since upgrade). */
+  overdue: number | null;
+  /** Items billed as lost; null if unknown. */
+  lost: number | null;
+  /** JSON array of ProblemItem — use parseProblems(). */
+  problems: string | null;
   error: string | null;
   fetched_at: string;
   /** When the data columns were last populated by a successful sync; null if never. */
@@ -121,19 +137,31 @@ export function getReadings(db: Db): Map<string, ReadingRow> {
   return new Map(rows.map((r) => [r.card_id, r]));
 }
 
+/** Overdue/lost items stored on a reading (empty when none or unreadable). */
+export function parseProblems(r: ReadingRow): ProblemItem[] {
+  if (!r.problems) return [];
+  try {
+    const v = JSON.parse(r.problems) as unknown;
+    return Array.isArray(v) ? (v as ProblemItem[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function saveReading(db: Db, s: AccountStatus): void {
   if (s.ok) {
     db.prepare(`
-      INSERT INTO readings (card_id, ok, physical, digital, holds_library, holds_digital, fines_due, remaining, error, fetched_at, last_success_at)
-      VALUES (?, 1, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+      INSERT INTO readings (card_id, ok, physical, digital, holds_library, holds_digital, fines_due, remaining, overdue, lost, problems, error, fetched_at, last_success_at)
+      VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
       ON CONFLICT(card_id) DO UPDATE SET
         ok=1, physical=excluded.physical, digital=excluded.digital,
         holds_library=excluded.holds_library, holds_digital=excluded.holds_digital,
-        fines_due=excluded.fines_due, remaining=excluded.remaining, error=NULL,
+        fines_due=excluded.fines_due, remaining=excluded.remaining,
+        overdue=excluded.overdue, lost=excluded.lost, problems=excluded.problems, error=NULL,
         fetched_at=excluded.fetched_at, last_success_at=excluded.last_success_at
     `).run(
       s.cardId, s.physical, s.digital, s.holdsLibrary, s.holdsDigital,
-      s.finesDue, s.remaining, s.fetchedAt, s.fetchedAt,
+      s.finesDue, s.remaining, s.overdue, s.lost, JSON.stringify(s.problems), s.fetchedAt, s.fetchedAt,
     );
     return;
   }

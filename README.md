@@ -2,7 +2,7 @@
 
 Track **physical checkout capacity** across multiple [SirsiDynix Enterprise](https://www.sirsidynix.com/) library cards from one place, so you can see at a glance which card has room before checking out — without logging into each account by hand.
 
-A real browser (Playwright) logs into each card and reads the patron dashboard's status panel (checkouts, holds, fines). Both physical and digital checkouts are reported; only **physical** is compared against the per-card limit (digital is informational).
+A real browser (Playwright) logs into each card and reads the patron dashboard's status panel (checkouts, holds, fines). Both physical and digital checkouts are reported; only **physical** is compared against the per-card limit (digital is informational). It also flags **overdue** checkouts and items the library has **billed as lost**, per card.
 
 > This repo is intentionally **generic**. No real library hostnames, card numbers, PINs, or names live here — those go in a gitignored `config.json` and credentials (later: an encrypted local store / k8s Secret). Committed files use placeholder examples only.
 
@@ -42,7 +42,7 @@ export LIBCARD_MASTER_KEY=<your key>     # same key used to import the cards
 export LIBCARD_AUTH_USER=you LIBCARD_AUTH_PASS=somepass   # Basic Auth (skip = unauthenticated, dev only)
 npm run serve                            # http://localhost:8080
 ```
-Shows summary tiles (card with the most room, free slots, checkouts, holds/fines) and a capacity meter per card (physical `n/50`, color-coded by slots left; digital/holds/fines as info) — a sortable table on desktop, tiles on phones. Follows the system light/dark theme. **Add card** opens a dialog; each card has **barcode** and **remove** actions; **Refresh** shows per-card progress (disabled while a refresh runs; the page reloads when it finishes). A background scheduler re-reads every `LIBCARD_REFRESH_MINUTES` (default 360), and opening the page auto-refreshes when any card's data is older than `LIBCARD_STALE_HOURS` (default 8).
+Shows summary tiles (card with the most room, free slots, checkouts, holds/fines, overdue/lost) and a capacity meter per card (physical `n/50`, color-coded by slots left; digital/holds/fines as info) — a sortable table on desktop, tiles on phones. Cards with overdue or lost items show **overdue / lost** pills that expand into the titles (days late, or the replacement charge). Follows the system light/dark theme. **Add card** opens a dialog; each card has **barcode** and **remove** actions; **Refresh** shows per-card progress (disabled while a refresh runs; the page reloads when it finishes). A background scheduler re-reads every `LIBCARD_REFRESH_MINUTES` (default 360), and opening the page auto-refreshes when any card's data is older than `LIBCARD_STALE_HOURS` (default 8).
 
 Env: `PORT` (8080), `HOST` (0.0.0.0), `LIBCARD_DB` (data/library.sqlite), `LIBCARD_REFRESH_MINUTES` (360; 0 disables), `LIBCARD_STALE_HOURS` (8; 0 disables auto-refresh on load), `LIBCARD_AUTH_USER`/`LIBCARD_AUTH_PASS`.
 
@@ -50,12 +50,12 @@ Env: `PORT` (8080), `HOST` (0.0.0.0), `LIBCARD_DB` (data/library.sqlite), `LIBCA
 `GET /metrics` exposes Prometheus gauges (no auth needed, no secrets — labeled by
 `card`/`member`/`system` only): `library_checkouts_physical`, `library_remaining`,
 `library_checkouts_digital`, `library_holds_library`, `library_holds_digital`,
-`library_fines_dollars`, `library_checkout_limit`, `library_scrape_success`,
+`library_fines_dollars`, `library_overdue_items`, `library_lost_items`, `library_checkout_limit`, `library_scrape_success`,
 `library_scrape_timestamp_seconds`. Rendered on-demand from the DB, so they survive restarts.
 
 Deploy artifacts in `deploy/monitoring/`:
-- `prometheus-rules.yaml` — alerts: scrape failing, data stale, card near limit.
-- `grafana-dashboard.json` — starter dashboard (remaining slots, scrape health, checkouts over time).
+- `prometheus-rules.yaml` — alerts: scrape failing, data stale, card near limit, items overdue, item lost.
+- `grafana-dashboard.json` — starter dashboard (remaining slots, scrape health, overdue/lost, checkouts over time).
 
 ### Phase 5 — container & deploy examples
 ```sh

@@ -10,6 +10,7 @@ export function printRow(s: AccountStatus): void {
   const flag = s.remaining !== null && s.remaining <= 5 ? '⚠️ ' : '   ';
   console.log(
     `✓ ${s.member.padEnd(12)} ${s.system.padEnd(12)} ${flag}physical ${cap.padEnd(7)} ` +
-      `(remaining ${s.remaining})  digital ${s.digital}  holds ${s.holdsLibrary}/${s.holdsDigital}  fines $${s.finesDue}`,
+      `(remaining ${s.remaining})  digital ${s.digital}  holds ${s.holdsLibrary}/${s.holdsDigital}  fines $${s.finesDue}` +
+      `  overdue ${s.overdue ?? '?'}  lost ${s.lost ?? '?'}`,
   );
 }

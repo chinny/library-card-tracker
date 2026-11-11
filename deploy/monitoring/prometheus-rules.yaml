@@ -42,3 +42,23 @@ spec:
           annotations:
             summary: "Card nearly maxed: {{ $labels.member }}/{{ $labels.system }}"
             description: "{{ $labels.card }} has {{ $value }} physical slot(s) left."
+
+        # Something is past due. Fires once per card; titles are on the dashboard.
+        - alert: LibraryItemsOverdue
+          expr: library_overdue_items > 0
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Overdue items on {{ $labels.member }}/{{ $labels.system }}"
+            description: "{{ $labels.card }} has {{ $value }} overdue item(s)."
+
+        # The library has billed an item as lost: it now costs money.
+        - alert: LibraryItemLost
+          expr: library_lost_items > 0
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Lost item billed on {{ $labels.member }}/{{ $labels.system }}"
+            description: "{{ $labels.card }} has {{ $value }} item(s) billed as lost."

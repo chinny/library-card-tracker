@@ -70,11 +70,29 @@
       ]
     },
     {
+      "id": 4,
+      "type": "stat",
+      "title": "Overdue / lost items",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value_and_name", "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "expr": "library_overdue_items", "instant": true, "legendFormat": "{{member}} / {{system}} overdue" },
+        { "refId": "B", "expr": "library_lost_items", "instant": true, "legendFormat": "{{member}} / {{system}} lost" }
+      ]
+    },
+    {
       "id": 3,
       "type": "timeseries",
       "title": "Physical checkouts over time",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 8 },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 16 },
       "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "lineInterpolation": "stepAfter", "fillOpacity": 10 } }, "overrides": [] },
       "targets": [
         { "refId": "A", "expr": "library_checkouts_physical", "legendFormat": "{{member}} / {{system}}" },

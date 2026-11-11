@@ -74,6 +74,17 @@ const FAMILIES: Family[] = [
     help: 'Outstanding fines in dollars.',
     value: (_c, r) => (r?.last_success_at ? r.fines_due : null),
   },
+  // Counts only — item titles never go into metrics. Omitted when unknown.
+  {
+    name: 'library_overdue_items',
+    help: 'Checked-out items past their due date.',
+    value: (_c, r) => (r?.last_success_at ? r.overdue : null),
+  },
+  {
+    name: 'library_lost_items',
+    help: 'Items the library has billed as lost.',
+    value: (_c, r) => (r?.last_success_at ? r.lost : null),
+  },
 ];
 
 export function renderMetrics(cards: CardConfig[], readings: Map<string, ReadingRow>): string {
