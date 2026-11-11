@@ -1,7 +1,7 @@
 // PWA assets served from routes (no binary files to commit). A maskable SVG icon
 // keeps things simple while remaining installable on Android via "Add to Home Screen".
 
-const THEME = '#2563eb';
+const THEME = '#4f46e5';
 
 export const MANIFEST = JSON.stringify({
   name: 'Library Card Tracker',
@@ -11,7 +11,7 @@ export const MANIFEST = JSON.stringify({
   scope: '/',
   display: 'standalone',
   orientation: 'portrait',
-  background_color: '#ffffff',
+  background_color: '#f6f7f9',
   theme_color: THEME,
   icons: [
     { src: '/icons/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
@@ -30,7 +30,7 @@ export const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 51
 
 // App-shell service worker: network-first for navigations (fresh capacity when
 // online, last-known page when offline), cache-first for the icon/manifest.
-export const SW_JS = `const CACHE = 'libcard-v1';
+export const SW_JS = `const CACHE = 'libcard-v2';
 const SHELL = ['/icons/icon.svg', '/manifest.webmanifest'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -62,7 +62,8 @@ self.addEventListener('fetch', (e) => {
 // Tags injected into the dashboard <head>.
 export const HEAD_TAGS = `
   <link rel="manifest" href="/manifest.webmanifest" />
-  <meta name="theme-color" content="${THEME}" />
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f7f9" />
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0c0d10" />
   <link rel="apple-touch-icon" href="/icons/icon.svg" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="Library" />
